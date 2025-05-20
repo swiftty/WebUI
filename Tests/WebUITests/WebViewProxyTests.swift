@@ -11,10 +11,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$title.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.title = "dummy"
         let actual = try await waitForValue(
-            in: sut.$title.values,
+            in: values,
             equalsTo: "dummy",
             timeout: .seconds(5.0)
         )
@@ -27,10 +28,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$url.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.url = URL(string: "https://www.example.com")!
         let actual = try await waitForValue(
-            in: sut.$url.values,
+            in: values,
             equalsTo: URL(string: "https://www.example.com")!,
             timeout: .seconds(5.0)
         )
@@ -43,10 +45,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$isLoading.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.isLoading = true
         let actual = try await waitForValue(
-            in: sut.$isLoading.values,
+            in: values,
             equalsTo: true,
             timeout: .seconds(5.0)
         )
@@ -59,10 +62,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$estimatedProgress.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.estimatedProgress = 0.5
         let actual = try await waitForValue(
-            in: sut.$estimatedProgress.values,
+            in: values,
             equalsTo: 0.5,
             timeout: .seconds(5.0)
         )
@@ -75,10 +79,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$canGoBack.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.canGoBack = true
         let actual = try await waitForValue(
-            in: sut.$canGoBack.values,
+            in: values,
             equalsTo: true,
             timeout: .seconds(5.0)
         )
@@ -91,10 +96,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$canGoForward.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.canGoForward = true
         let actual = try await waitForValue(
-            in: sut.$canGoForward.values,
+            in: values,
             equalsTo: true,
             timeout: .seconds(5.0)
         )
@@ -108,10 +114,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$_contentSize.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.scrollView.contentSize = .init(width: 50, height: 50)
         let actual = try await waitForValue(
-            in: sut.$_contentSize.values,
+            in: values,
             equalsTo: CGSize(width: 50, height: 50),
             timeout: .seconds(5.0)
         )
@@ -124,10 +131,11 @@ struct WebViewProxyTests {
         let webViewMock = Remakeable {
             EnhancedWKWebViewMock() as EnhancedWKWebView
         }
+        let values = sut.$_contentOffset.values.withBuffering()
         sut.setUp(webViewMock)
         (webViewMock.wrappedValue as? EnhancedWKWebViewMock)?.scrollView.contentOffset = .init(x: 50, y: 50)
         let actual = try await waitForValue(
-            in: sut.$_contentOffset.values,
+            in: values,
             equalsTo: CGPoint(x: 50, y: 50),
             timeout: .seconds(5.0)
         )
@@ -231,16 +239,28 @@ struct WebViewProxyTests {
     }
 }
 
-private func waitForValue<V: Equatable & Sendable>(
-    in sequence: AsyncPublisher<Published<V>.Publisher>,
+private extension AsyncPublisher where P.Output: Sendable {
+    func withBuffering() -> AsyncStream<P.Output> {
+        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+            Task { @Sendable in
+                for await element in self {
+                    continuation.yield(element)
+                }
+            }
+        }
+    }
+}
+
+private func waitForValue<V: Equatable & Sendable, Seq: AsyncSequence & Sendable>(
+    in sequence: Seq,
     equalsTo expectedValue: V,
     timeout: Duration
-) async throws -> Bool {
+) async throws -> Bool where Seq.Element == V {
     try await withThrowingTaskGroup(of: Bool.self) { group in
         defer { group.cancelAll() }
 
-        group.addTask { @Sendable in
-            await sequence.first { $0 == expectedValue } != nil
+        group.addTask {
+            try await sequence.first { $0 == expectedValue } != nil
         }
 
         group.addTask {
